@@ -1,0 +1,272 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: scalingschedules.platform.example.com
+spec:
+  group: platform.example.com
+  names:
+    categories:
+    - platform
+    kind: ScalingSchedule
+    listKind: ScalingScheduleList
+    plural: scalingschedules
+    shortNames:
+    - ss
+    singular: scalingschedule
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.targetRef.name
+      name: Target
+      type: string
+    - jsonPath: .status.activeWindow
+      name: Window
+      type: string
+    - jsonPath: .status.desiredReplicas
+      name: Replicas
+      type: integer
+    - description: When the active window next changes (UTC). type=string because
+        kubectl renders date columns as an age, which is <invalid> for future times.
+      jsonPath: .status.nextTransitionTime
+      name: Next
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ScalingSchedule is the Schema for the scalingschedules API.
+
+          A ScalingSchedule changes a WebApp's replica count by time of day, e.g.
+          "10 replicas on weekdays 08:00-18:00, otherwise 2". It acts like a
+          time-based HorizontalPodAutoscaler and talks to the WebApp only through its
+          /scale subresource.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of ScalingSchedule
+            properties:
+              defaultReplicas:
+                description: defaultReplicas is the replica count used when no window
+                  is active.
+                format: int32
+                maximum: 50
+                minimum: 0
+                type: integer
+              suspend:
+                description: suspend pauses the schedule. The target keeps its current
+                  size.
+                type: boolean
+              targetRef:
+                description: |-
+                  targetRef names the WebApp (in the same namespace) to scale.
+                  The CEL rule makes it immutable: re-pointing a schedule would leave the
+                  old target stuck at whatever size it had, so we force delete + create.
+                properties:
+                  name:
+                    description: name of the WebApp.
+                    minLength: 1
+                    type: string
+                required:
+                - name
+                type: object
+                x-kubernetes-validations:
+                - message: targetRef is immutable
+                  rule: self == oldSelf
+              timeZone:
+                default: UTC
+                description: |-
+                  timeZone is an IANA time zone name such as "Europe/London" or
+                  "America/New_York". Window times are evaluated in this zone, including
+                  daylight-saving changes. CEL cannot check this, so the validating
+                  webhook does.
+                type: string
+              windows:
+                description: |-
+                  windows are the time ranges with their replica counts. If several
+                  windows are active at the same moment, the first one in the list wins.
+                items:
+                  description: |-
+                    ScheduleWindow is a recurring daily time range.
+
+                    If end is earlier than start, the window crosses midnight. For example
+                    start=22:00 end=06:00 with days=[Fri] runs from Friday 22:00 to Saturday
+                    06:00.
+                  properties:
+                    days:
+                      description: days the window starts on. Empty means every day.
+                      items:
+                        description: Weekday is a three-letter English day name.
+                        enum:
+                        - Mon
+                        - Tue
+                        - Wed
+                        - Thu
+                        - Fri
+                        - Sat
+                        - Sun
+                        type: string
+                      maxItems: 7
+                      type: array
+                      x-kubernetes-list-type: set
+                    end:
+                      description: end time, 24h "HH:MM", exclusive.
+                      pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                      type: string
+                    name:
+                      description: name identifies the window and appears in status.activeWindow.
+                      maxLength: 63
+                      minLength: 1
+                      type: string
+                    replicas:
+                      description: replicas while this window is active.
+                      format: int32
+                      maximum: 50
+                      minimum: 0
+                      type: integer
+                    start:
+                      description: start time, 24h "HH:MM", inclusive.
+                      pattern: ^([01][0-9]|2[0-3]):[0-5][0-9]$
+                      type: string
+                  required:
+                  - end
+                  - name
+                  - replicas
+                  - start
+                  type: object
+                  x-kubernetes-validations:
+                  - message: start and end must differ
+                    rule: self.start != self.end
+                maxItems: 20
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            required:
+            - defaultReplicas
+            - targetRef
+            - windows
+            type: object
+          status:
+            description: status defines the observed state of ScalingSchedule
+            properties:
+              activeWindow:
+                description: |-
+                  activeWindow is the name of the window in effect, or empty when the
+                  default applies.
+                type: string
+              conditions:
+                description: conditions represent the current state of the ScalingSchedule
+                  resource.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              desiredReplicas:
+                description: |-
+                  desiredReplicas is what the schedule wants right now. It is a pointer so
+                  that 0 still shows up in the output.
+                format: int32
+                type: integer
+              lastScaleTime:
+                description: lastScaleTime is when the operator last changed the target's
+                  replicas.
+                format: date-time
+                type: string
+              nextTransitionTime:
+                description: nextTransitionTime is when the active window will next
+                  change.
+                format: date-time
+                type: string
+              observedGeneration:
+                description: observedGeneration is the metadata.generation the operator
+                  last acted on.
+                format: int64
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

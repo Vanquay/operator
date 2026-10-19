@@ -1,0 +1,43 @@
+# A realistic WebApp. Apply it with:
+#   kubectl apply -k config/samples/
+# then watch the operator work:
+#   kubectl get webapps -w            (or the short name: kubectl get wa)
+#   kubectl describe webapp storefront
+#   kubectl get deploy,svc,cm,ingress -l app.kubernetes.io/instance=storefront
+apiVersion: platform.example.com/v1alpha1
+kind: WebApp
+metadata:
+  labels:
+    app.kubernetes.io/name: platform-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: storefront
+spec:
+  # An nginx build that runs as non-root and listens on 8080 (the default
+  # spec.port), so the operator's readiness probe works out of the box.
+  image: nginxinc/nginx-unprivileged:1.27-alpine
+  replicas: 2
+  # Rendered into the "storefront-config" ConfigMap and exposed as env vars.
+  # Edit a value and watch the pods roll:  kubectl edit webapp storefront
+  config:
+    LOG_LEVEL: info
+    FEATURE_NEW_CHECKOUT: "false"
+  # Keys of this Secret become env vars too. Rotate it and the pods roll:
+  #   kubectl create secret generic storefront-secrets \
+  #     --from-literal=PAYMENT_API_KEY=rotated --dry-run=client -o yaml | kubectl apply -f -
+  secretRef:
+    name: storefront-secrets
+  env:
+  - name: APP_ENV
+    value: staging
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+  # Creates an Ingress. A cluster without an ingress controller (e.g. plain
+  # kind) stores the Ingress, but nothing routes traffic to it.
+  # Delete this block and the operator deletes the Ingress.
+  ingress:
+    host: storefront.local
+    path: /

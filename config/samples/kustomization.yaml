@@ -1,0 +1,6 @@
+## Append samples of your project ##
+resources:
+- storefront_secret.yaml
+- platform_v1alpha1_webapp.yaml
+- platform_v1alpha1_scalingschedule.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples
